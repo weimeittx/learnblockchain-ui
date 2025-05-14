@@ -33,22 +33,26 @@
 </template>
 
 <script>
+// 避免在Vue响应式系统中包装ethers对象
+let provider = null;
+let signer = null;
+let tokenBankContract = null;
+
+// 导入ethers v6
 import { ethers } from 'ethers';
 import TokenBankABI from '../abi/TokenBank.json';
-import ERC20ABI from '../abi/ERC20.json'; // 请确保你有ERC20的ABI
+import ERC20ABI from '../abi/ERC20.json';
 
 export default {
   name: 'TestPageTwo',
   data() {
     return {
-      provider: null,
-      signer: null,
-      tokenBankAddress: '0xCdF6bE2a613A87A2cEbd029E75CD9F3E29FF012D', // 替换为你的TokenBank合约地址
-      tokenBankContract: null,
+      tokenBankAddress: '0xCdF6bE2a613A87A2cEbd029E75CD9F3E29FF012D',
       tokenAddress: '',
       amount: '',
       txHash: '',
       error: '',
+      cachedChainId: null,
     }
   },
   async mounted() {
@@ -59,18 +63,29 @@ export default {
       try {
         // 连接到以太坊网络
         if (window.ethereum) {
-          this.provider = new ethers.providers.Web3Provider(window.ethereum);
+          // ethers v6中Web3Provider更名为BrowserProvider
+          provider = new ethers.BrowserProvider(window.ethereum);
           
           // 请求用户连接钱包
           await window.ethereum.request({ method: 'eth_requestAccounts' });
           
-          this.signer = this.provider.getSigner();
+          // 获取链ID - 直接从ethereum对象获取
+          try {
+            const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+            this.cachedChainId = parseInt(chainIdHex, 16);
+            console.log('缓存的chainId:', this.cachedChainId);
+          } catch (err) {
+            console.error('获取chainId失败:', err);
+          }
+          
+          // 在ethers v6中获取签名者方法是异步的
+          signer = await provider.getSigner();
           
           // 初始化TokenBank合约
-          this.tokenBankContract = new ethers.Contract(
+          tokenBankContract = new ethers.Contract(
             this.tokenBankAddress,
             TokenBankABI,
-            this.signer
+            signer
           );
         } else {
           this.error = '请安装MetaMask或其他兼容的钱包扩展';
@@ -90,13 +105,14 @@ export default {
           return;
         }
         
-        const amountWei = ethers.utils.parseUnits(this.amount, 18); // 假设18位小数，你可能需要动态获取
+        // ethers v6中parseUnits现在是单独的函数
+        const amountWei = ethers.parseUnits(this.amount, 18);
         
-        // 首先需要授权TokenBank合约使用代币
+        // 创建代币合约
         const tokenContract = new ethers.Contract(
           this.tokenAddress,
           ERC20ABI,
-          this.signer
+          signer
         );
         
         // 授权代币
@@ -104,10 +120,10 @@ export default {
         await approveTx.wait();
         
         // 执行存款
-        const tx = await this.tokenBankContract.deposit(this.tokenAddress, amountWei);
+        const tx = await tokenBankContract.deposit(this.tokenAddress, amountWei);
         const receipt = await tx.wait();
         
-        this.txHash = receipt.transactionHash;
+        this.txHash = receipt.hash; // ethers v6中是hash而不是transactionHash
       } catch (error) {
         this.error = `存款失败: ${error.message}`;
       }
@@ -123,15 +139,33 @@ export default {
           return;
         }
         
-        const amountWei = ethers.utils.parseUnits(this.amount, 18); // 假设18位小数
+        // ethers v6中parseUnits现在是单独的函数
+        const amountWei = ethers.parseUnits(this.amount, 18);
         
         // 获取permit2合约地址
-        const permit2Address = await this.tokenBankContract.PERMIT2();
+        const permit2Address = await tokenBankContract.PERMIT2();
         
-        // 构建permit2签名数据
-        const userAddress = await this.signer.getAddress();
-        const chainId = (await this.provider.getNetwork()).chainId;
-        const nonce = ethers.BigNumber.from(ethers.utils.randomBytes(32)); // 随机nonce
+        // 获取用户地址
+        const userAddress = await signer.getAddress();
+        
+        // 使用缓存的chainId或从ethereum对象获取
+        let chainId = this.cachedChainId;
+        if (!chainId) {
+          try {
+            const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+            chainId = parseInt(chainIdHex, 16);
+            console.log('重新获取的chainId:', chainId);
+          } catch (error) {
+            console.error('获取chainId失败:', error);
+            this.error = '无法获取链ID，请刷新页面重试';
+            return;
+          }
+        }
+        
+        // 随机nonce - ethers v6中的变化
+        const randomBytes = ethers.randomBytes(32);
+        const nonce = ethers.toBigInt(`0x${Buffer.from(randomBytes).toString('hex')}`);
+        
         const deadline = Math.floor(Date.now() / 1000) + 3600; // 1小时后过期
         
         // 构建permit2签名消息
@@ -159,11 +193,42 @@ export default {
           deadline: deadline
         };
         
-        // 签名
-        const signature = await this.signer._signTypedData(domain, types, value);
+        console.log('Domain:', domain);
+        console.log('Value:', value);
+        
+        // 签名 - 避免使用ethers对象的签名方法，直接使用ethereum对象
+        let signature;
+        try {
+          // ethers v6中使用signTypedData方法代替_signTypedData
+          // 但为了避免proxy问题，我们直接使用window.ethereum对象
+          const typedData = JSON.stringify({
+            types: {
+              EIP712Domain: [
+                { name: 'name', type: 'string' },
+                { name: 'chainId', type: 'uint256' },
+                { name: 'verifyingContract', type: 'address' }
+              ],
+              ...types
+            },
+            primaryType: 'PermitSingle',
+            domain,
+            message: value
+          });
+          
+          signature = await window.ethereum.request({
+            method: 'eth_signTypedData_v4',
+            params: [userAddress, typedData]
+          });
+        } catch (signError) {
+          console.error('签名失败:', signError);
+          this.error = `签名失败: ${signError.message}`;
+          return;
+        }
+        
+        console.log('获取的签名:', signature);
         
         // 执行带签名的存款
-        const tx = await this.tokenBankContract.depositWithPermit2(
+        const tx = await tokenBankContract.depositWithPermit2(
           this.tokenAddress,
           amountWei,
           nonce,
@@ -172,8 +237,9 @@ export default {
         );
         
         const receipt = await tx.wait();
-        this.txHash = receipt.transactionHash;
+        this.txHash = receipt.hash; // ethers v6中是hash而不是transactionHash
       } catch (error) {
+        console.error('详细错误:', error);
         this.error = `Permit2签名存款失败: ${error.message}`;
       }
     },
@@ -188,13 +254,14 @@ export default {
           return;
         }
         
-        const amountWei = ethers.utils.parseUnits(this.amount, 18); // 假设18位小数
+        // ethers v6中parseUnits现在是单独的函数
+        const amountWei = ethers.parseUnits(this.amount, 18);
         
         // 执行取款
-        const tx = await this.tokenBankContract.withdraw(this.tokenAddress, amountWei);
+        const tx = await tokenBankContract.withdraw(this.tokenAddress, amountWei);
         const receipt = await tx.wait();
         
-        this.txHash = receipt.transactionHash;
+        this.txHash = receipt.hash; // ethers v6中是hash而不是transactionHash
       } catch (error) {
         this.error = `取款失败: ${error.message}`;
       }
