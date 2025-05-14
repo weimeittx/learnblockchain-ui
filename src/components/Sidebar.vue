@@ -32,7 +32,7 @@ export default {
     return {
       menuItems: [
         { id: 'bank', name: 'Bank合约', icon: '💰' },
-        // { id: 'page2', name: '测试页面2', icon: '📋' },
+        { id: 'tokenBank', name: 'TokenBank', icon: '📋' },
         // { id: 'page3', name: '测试页面3', icon: '📊' }
       ]
     }

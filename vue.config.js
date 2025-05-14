@@ -3,9 +3,11 @@ module.exports = defineConfig({
   transpileDependencies: true,
   lintOnSave: false,
   devServer: {
-    overlay: {
-      warnings: false,
-      errors: false
+    client: {
+      overlay: {
+        warnings: false,
+        errors: false
+      }
     }
   }
 })

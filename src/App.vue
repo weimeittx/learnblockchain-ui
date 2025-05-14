@@ -7,7 +7,7 @@
       <!-- </div> -->
       <div class="main-content">
         <TestPageOne v-if="currentPage === 'bank'" />
-        <TestPageTwo v-if="currentPage === 'page2'" />
+        <TestPageTwo v-if="currentPage === 'tokenBank'" />
         <TestPageThree v-if="currentPage === 'page3'" />
       </div>
     </div>
