@@ -43,7 +43,7 @@ export default {
     return {
       provider: null,
       signer: null,
-      tokenBankAddress: '0x1234567890123456789012345678901234567890', // 替换为你的TokenBank合约地址
+      tokenBankAddress: '0xCdF6bE2a613A87A2cEbd029E75CD9F3E29FF012D', // 替换为你的TokenBank合约地址
       tokenBankContract: null,
       tokenAddress: '',
       amount: '',
