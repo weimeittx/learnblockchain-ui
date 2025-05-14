@@ -40,14 +40,32 @@ let tokenBankContract = null;
 
 // 导入ethers v6
 import { ethers } from 'ethers';
+// 检查ethers版本
+console.log('当前使用的ethers版本:', ethers.version);
+
 import TokenBankABI from '../abi/TokenBank.json';
 import ERC20ABI from '../abi/ERC20.json';
+
+// 添加十六进制转换辅助函数
+function bytesToHex(bytes) {
+  return Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+// 添加BigInt序列化处理函数
+function replaceBigInt(key, value) {
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  return value;
+}
 
 export default {
   name: 'TestPageTwo',
   data() {
     return {
-      tokenBankAddress: '0xCdF6bE2a613A87A2cEbd029E75CD9F3E29FF012D',
+      tokenBankAddress: '0x38AF69c4cDac781D454e5B9AA310F9d7E5155075',
       tokenAddress: '',
       amount: '',
       txHash: '',
@@ -144,6 +162,7 @@ export default {
         
         // 获取permit2合约地址
         const permit2Address = await tokenBankContract.PERMIT2();
+        console.log('Permit2地址:', permit2Address);
         
         // 获取用户地址
         const userAddress = await signer.getAddress();
@@ -162,9 +181,9 @@ export default {
           }
         }
         
-        // 随机nonce - ethers v6中的变化
-        const randomBytes = ethers.randomBytes(32);
-        const nonce = ethers.toBigInt(`0x${Buffer.from(randomBytes).toString('hex')}`);
+        // 使用简单nonce
+        const nonce = BigInt(Math.floor(Math.random() * 1000000));
+        console.log('使用的nonce:', nonce.toString());
         
         const deadline = Math.floor(Date.now() / 1000) + 3600; // 1小时后过期
         
@@ -187,9 +206,9 @@ export default {
         
         const value = {
           token: this.tokenAddress,
-          amount: amountWei,
+          amount: amountWei.toString(), // 确保是字符串
           spender: this.tokenBankAddress,
-          nonce: nonce,
+          nonce: nonce.toString(), // 确保是字符串
           deadline: deadline
         };
         
@@ -213,7 +232,9 @@ export default {
             primaryType: 'PermitSingle',
             domain,
             message: value
-          });
+          }, replaceBigInt);
+          
+          console.log('待签名数据:', typedData);
           
           signature = await window.ethereum.request({
             method: 'eth_signTypedData_v4',
@@ -226,6 +247,12 @@ export default {
         }
         
         console.log('获取的签名:', signature);
+        console.log('参数分别为:', 
+          this.tokenAddress,
+          amountWei.toString(),
+          nonce.toString(),
+          deadline,
+          signature);
         
         // 执行带签名的存款
         const tx = await tokenBankContract.depositWithPermit2(
@@ -233,7 +260,8 @@ export default {
           amountWei,
           nonce,
           deadline,
-          signature
+          signature,
+          { gasLimit: 500000 } // 手动设置gas限制
         );
         
         const receipt = await tx.wait();
@@ -241,6 +269,16 @@ export default {
       } catch (error) {
         console.error('详细错误:', error);
         this.error = `Permit2签名存款失败: ${error.message}`;
+        
+        // 尝试解析错误原因
+        if (error.data) {
+          console.log('错误数据:', error.data);
+        }
+        
+        // 检查是否有 error.reason
+        if (error.reason) {
+          console.log('错误原因:', error.reason);
+        }
       }
     },
     
